@@ -26,7 +26,7 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 app.use(urlencoded({extended: true}))
-//app.use(express.static(path.join(__dirname, "../medsoft-online-frontend/build/")));
+app.use(express.static('build'))
 
 mongoose.connect(
     process.env.MONGO_URL,
@@ -44,8 +44,7 @@ app.use("/auth", authRoute);
 app.use("/user", userRoute);
 
 app.get("/*", (req, res) => {
-    //res.sendFile(path.join(__dirname, "../medsoft-online-frontend/build/index.html"));
-    res.send("it works");
+    res.sendFile(path.resolve(__dirname, 'build', 'index.html'))
 });
 
 //Эхлэл
