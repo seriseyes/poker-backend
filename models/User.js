@@ -8,6 +8,7 @@ const schema = new mongoose.Schema({
     bank: {type: String, required: true},
     accountName: {type: String, required: true, maxLength: 50},
     account: {type: String, required: true},
+    chips: {type: Number, default: 0},
     created: {type: Date, default: () => Date.now(), immutable: true, required: true}//Илгээсэн огноо
 });
 
