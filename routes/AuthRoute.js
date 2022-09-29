@@ -19,6 +19,7 @@ router.route("/login").post(async (req, res) => {
 
     const accessToken = generateAccessToken(user);
     res.cookie("token", accessToken);
+    res.cookie("username", model.username);
     res.json({token: accessToken});
 });
 

@@ -67,36 +67,42 @@ io.on("connection", socket => {
     socket.on("disconnect", () => log.info("disconnected"));
     socket.on("create", room => socket.join(room.id));
     socket.on("join", async room => {
-        const currentRoom = await Room.findOne({_id: room.room}, {}).populate("table").populate("players").exec();
-        const user = verify(room.id);
-        const cUser = await User.findOne({username: user.name});
+        const currentRoom = await Room.findOne({_id: room.room}, {}).populate("table").populate("players.player").exec();
+        const cUser = await User.findOne({username: room.id});
 
-        if (!currentRoom.players.filter(f => f._id.toString() === cUser._id.toString())[0]) {
-            currentRoom.players.push(cUser);
+        if (!currentRoom.players.filter(f => f.player._id.toString() === cUser._id.toString())[0]) {
+            currentRoom.players.push({
+                player: cUser,
+                cards: []
+            });
             await currentRoom.save();
             io.to(room.room).emit("join", currentRoom);
         }
     });
     socket.on("leave", async room => {
-        const currentRoom = await Room.findOne({_id: room.room}, {}).populate("table").populate("players").exec();
-        const user = verify(room.id);
-        if (user === null) return;
-        const cUser = await User.findOne({username: user.name});
-
-        currentRoom.players = currentRoom.players.filter(f => f._id.toString() !== cUser._id.toString());
+        const currentRoom = await Room.findOne({_id: room.room}, {}).populate("table").populate("players.player").exec();
+        const cUser = await User.findOne({username: room.id});
+        currentRoom.players = currentRoom.players.filter(f => f.player._id.toString() !== cUser._id.toString());
         await currentRoom.save();
-
         io.to(room.room).emit("leave", currentRoom);
     });
-});
+    socket.on("started", async data => {
+        const currentRoom = await Room.findOne({_id: data.room}, {}).populate("table").populate("players.player").populate("players.cards").exec();
 
-function verify(token) {
-    try {
-        return jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-    } catch (err) {
-        return null;
-    }
-}
+        const cards = currentRoom.players.map(m => m.cards).flat(1);
+
+        currentRoom.cards = currentRoom.cards.filter(f => !cards.includes(f)).slice(0, 3);
+        currentRoom.players.forEach(el => {
+            if (el.player.username !== data.id) {
+                el.cards = ["0", "0"];
+            }
+        });
+
+        currentRoom.players.forEach(el => console.log(el));
+
+        io.to(data.room).emit("started", currentRoom);
+    });
+});
 
 //Эхлэл
 server.listen(PORT, () => {
