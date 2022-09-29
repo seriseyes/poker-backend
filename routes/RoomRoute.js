@@ -40,12 +40,12 @@ router.get("/create", validate, async (req, res) => {
 });
 
 router.get("/all/tableId", validate, async (req, res) => {
-    const rooms = await Room.find({status: "active", table: req.query.tableId}).populate("table").exec();
+    const rooms = await Room.find({status: "active", players: {$ne: []} , table: req.query.tableId}).populate("table").populate("players", ["username"]).exec();
     res.json(rooms);
 });
 
 router.get("/id", validate, async (req, res) => {
-    const room = await Room.findOne({_id: req.query.id}, {}).populate("table").populate("players", ["username", "chips"]).exec();
+    const room = await Room.findOne({_id: req.query.id}).populate("table").populate("players", ["username", "chips"]).exec();
     res.json(room);
 });
 
