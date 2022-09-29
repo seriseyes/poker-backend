@@ -68,19 +68,35 @@ io.on("connection", socket => {
     socket.on("create", room => socket.join(room.id));
     socket.on("join", async room => {
         const currentRoom = await Room.findOne({_id: room.room}, {}).populate("table").populate("players").exec();
-        console.log(currentRoom)
-        jwt.verify(room.id, process.env.ACCESS_TOKEN_SECRET, async (err, user) => {
-            const cUser = await User.findOne({username: user.name});
-            if (currentRoom.players.filter(f => f._id === ""))
+        const user = verify(room.id);
+        const cUser = await User.findOne({username: user.name});
+
+        if (!currentRoom.players.filter(f => f._id.toString() === cUser._id.toString())[0]) {
             currentRoom.players.push(cUser);
-
-            console.log(currentRoom)
-        });
-
-        io.to(room.id).emit("join", room);
+            await currentRoom.save();
+            io.to(room.room).emit("join", currentRoom);
+        }
     });
-    socket.on("leaved", room => io.to(room.id).emit("leaved", room));
+    socket.on("leave", async room => {
+        const currentRoom = await Room.findOne({_id: room.room}, {}).populate("table").populate("players").exec();
+        const user = verify(room.id);
+        if (user === null) return;
+        const cUser = await User.findOne({username: user.name});
+
+        currentRoom.players = currentRoom.players.filter(f => f._id.toString() !== cUser._id.toString());
+        await currentRoom.save();
+
+        io.to(room.room).emit("leave", currentRoom);
+    });
 });
+
+function verify(token) {
+    try {
+        return jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+    } catch (err) {
+        return null;
+    }
+}
 
 //Эхлэл
 server.listen(PORT, () => {
