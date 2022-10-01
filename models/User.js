@@ -9,6 +9,8 @@ const schema = new mongoose.Schema({
     accountName: {type: String, required: true, maxLength: 50},
     account: {type: String, required: true},
     chips: {type: Number, default: 0},
+    role: {type: String, required: true, default: () => "user"},//admin, user
+    ban: {type: Boolean, default: () => false},
     created: {type: Date, default: () => Date.now(), immutable: true, required: true}//Илгээсэн огноо
 });
 

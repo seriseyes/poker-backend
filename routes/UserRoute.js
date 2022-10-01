@@ -24,4 +24,34 @@ router.get("/check", validateToken, (req, res) => {
     res.status(200).send("success");
 });
 
+router.get("/all", validateToken, async (req, res) => {
+    const user = await User.findOne({username: req.user.name});
+    if (!user || user.role !== "admin") {
+        res.status(401).send("Хандах эрхгүй хэрэглэгч байна");
+        return;
+    }
+
+    const users = await User.find({}, {password: 0, bank: 0, accountName: 0, account: 0});
+    res.json(users);
+});
+
+router.get("/ban", validateToken, async (req, res) => {
+    const user = await User.findOne({username: req.user.name});
+    if (!user || user.role !== "admin") {
+        res.status(401).send("Хандах эрхгүй хэрэглэгч байна");
+        return;
+    }
+
+    const toBan = await User.findOne({_id: req.query.id});
+
+    await User.updateOne({_id: req.query.id}, {ban: !toBan.ban});
+
+    res.send("Амжилттай");
+});
+
+router.get("/me", validateToken, async (req, res) => {
+    const user = await User.findOne({username: req.user.name});
+    res.json(user);
+});
+
 module.exports = router;

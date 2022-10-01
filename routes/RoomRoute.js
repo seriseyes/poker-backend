@@ -63,7 +63,28 @@ router.get("/id", validate, async (req, res) => {
         log.error(err);
         res.status(400).send(err.message);
     }
+});
 
+router.get("/calculated", validate, async (req, res) => {
+    try {
+        const room = await Room.findOne({_id: req.query.id}).populate("table").populate("players.player", ['username', 'chips', 'cards']).populate("players.cards").exec();
+        if (!room.started) return res.json(room);
+
+        const size = room.players.length * 2;
+
+        room.cards = room.cards.slice(room.players.length * 2, size + 5);
+        room.players.forEach(el => {
+            if (el.player.username !== req.user.name) {
+                el.cards = ["0", "0"];
+            }
+        });
+
+        res.json(room);
+    } catch (err) {
+        log.error(err);
+        res.status(400).send(err.message);
+
+    }
 });
 
 router.get("/start", validate, async (req, res) => {

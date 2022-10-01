@@ -11,9 +11,14 @@ router.post("/create", validate, async (req, res) => {
     const body = req.body;
     const model = new Table(body);
 
+    if (!model.type || !model.big || !model.small) {
+        res.status(400).send("Шаардлагатай талбаруудыг бөглөнө үү.");
+        return;
+    }
+
     try {
-        const result = await model.save();
-        res.status(200).send(result);
+        await model.save();
+        res.status(200).send("Амжилттай үүслээ.");
     } catch (err) {
         res.status(400).send(err.message);
     }
