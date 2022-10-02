@@ -123,12 +123,18 @@ io.on("connection", socket => {
         await room.save();
         io.to(data.room).emit("check_room", {message: "success"});
     });
-    socket.on("leave", async room => {
-        const currentRoom = await Room.findOne({_id: room.room}, {}).populate("table").populate("players.player").exec();
-        const cUser = await User.findOne({username: room.id});
+    socket.on("leave", async data => {
+        const currentRoom = await Room.findOne({_id: data.room}, {}).populate("table").populate("players.player").exec();
+        const cUser = await User.findOne({username: data.id});
         currentRoom.players = currentRoom.players.filter(f => f.player._id.toString() !== cUser._id.toString());
         await currentRoom.save();
-        io.to(room.room).emit("check_room", {message: "success"});
+        io.to(data.room).emit("check_room", {message: "success"});
+    });
+    socket.on("send", data => {
+        io.to(data.room).emit("send", {
+            sender: data.user,
+            message: data.message,
+        });
     });
 });
 
