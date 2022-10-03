@@ -18,7 +18,7 @@ const chipRoute = require("./routes/ChipRoute");
 const {urlencoded} = require("express");
 const Room = require("./models/Room");
 const User = require("./models/User");
-const jwt = require("jsonwebtoken");
+const Hand = require('pokersolver').Hand;
 
 require("dotenv").config();
 
@@ -105,6 +105,7 @@ io.on("connection", socket => {
             cards.sort(() => 0.5 - Math.random());
             room.cards = cards;
             room.started = true;
+            room.round = 1;
 
             let i = 0;
 
@@ -118,16 +119,96 @@ io.on("connection", socket => {
                 el.cards.push(cards[i]);
                 i++;
             });
+
+            const bigIndex = room.players.indexOf(room.players[Math.floor(Math.random() * room.players.length)]);
+
+            let playerSmall = room.players[bigIndex + 1];
+            if (!playerSmall) playerSmall = room.players[0];
+            let playerCurrent = room.players[bigIndex + 2];
+            if (!playerCurrent) playerCurrent = room.players[0];
+
+            room.players[bigIndex].big = true;
+            room.current = playerCurrent.player.username;
+            room.first = room.current;
+            room.players[room.players.indexOf(playerSmall)].small = true;
+            room.call = room.table.small;
+            room.pot = room.call;
+        }
+
+        if (data.action) {
+            const findNextIndex = (c) => {
+                let index = room.players.indexOf(c) + 1;
+
+                for (let i = index; i < room.players.length; i++) {
+                    if (room.players[i].status === 'active') {
+                        return i;
+                    }
+                }
+
+                for (let i = 0; i < index; i++) {
+                    if (room.players[i].status === 'active') {
+                        return i;
+                    }
+                }
+            }
+
+            const current = room.players.find(f => f.player.username === user.username);
+
+            switch (data.action) {
+                case "fold":
+                    room.current = room.players[findNextIndex(current)].player.username;
+                    room.players.find(f => f.player.username === user.username).status = 'inactive';
+                    break;
+                case "call":
+                    if (user.chips < room.call) return {message: "fail"};
+                    room.pot += room.call;
+                    room.players.find(f => f.player.username === user.username).bet += room.call;
+                    room.current = room.players[findNextIndex(current)].player.username;
+                    user.chips -= room.call;
+                    await user.save();
+                    break;
+                case "raise":
+                    const raise = parseInt(data.raise);
+                    if (user.chips < raise) return {message: "fail"};
+                    room.call = raise;
+                    room.players.find(f => f.player.username === user.username).bet += raise;
+                    room.current = room.players[findNextIndex(current)].player.username;
+                    room.pot += raise;
+                    user.chips -= raise;
+                    await user.save();
+                    break;
+            }
+
+            if (room.first === room.current) {
+                room.round++;
+            }
+
+            if (data.action === 'fold') {
+                if (room.first === user.username) {
+                    room.first = room.current;
+                }
+            }
+            if (room.round === 4) {
+                const size = room.players.length * 2;
+                const cards = room.cards.slice(size, size + 5);
+                const winner = Hand.winners(room.players.map(el => {
+                    const hand = Hand.solve([...cards, el.cards]);
+                    hand.name = el.player.username;
+                    return hand;
+                }));
+                console.log(winner[0].name);
+            }
         }
 
         await room.save();
         io.to(data.room).emit("check_room", {message: "success"});
     });
     socket.on("leave", async data => {
-        const currentRoom = await Room.findOne({_id: data.room}, {}).populate("table").populate("players.player").exec();
-        const cUser = await User.findOne({username: data.id});
-        currentRoom.players = currentRoom.players.filter(f => f.player._id.toString() !== cUser._id.toString());
-        await currentRoom.save();
+        const room = await Room.findOne({_id: data.room}, {}).populate("table").populate("players.player").exec();
+        room.players = room.players.filter(f => {
+            return f.player.username !== data.user;
+        });
+        await room.save();
         io.to(data.room).emit("check_room", {message: "success"});
     });
     socket.on("send", data => {

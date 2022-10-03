@@ -72,7 +72,16 @@ router.get("/calculated", validate, async (req, res) => {
 
         const size = room.players.length * 2;
 
-        room.cards = room.cards.slice(room.players.length * 2, size + 5);
+        if (room.round === 1) {
+            room.cards = [];
+        } else if (room.round === 2) {
+            room.cards = room.cards.slice(size, size + 3);
+        } else if (room.round === 3) {
+            room.cards = room.cards.slice(size, size + 4);
+        } else if (room.round === 3) {
+            room.cards = room.cards.slice(size, size + 5);
+        } else room.cards = room.cards.slice(size, size + 5);
+
         room.players.forEach(el => {
             if (el.player.username !== req.user.name) {
                 el.cards = ["0", "0"];
