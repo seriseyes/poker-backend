@@ -42,11 +42,21 @@ router.get("/create", validate, async (req, res) => {
 
 router.get("/all/tableId", validate, async (req, res) => {
     try {
-        const rooms = await Room.find({
+        let rooms = await Room.find({
             status: "active",
             players: {$ne: []},
-            table: req.query.tableId
-        }).populate("table").populate("players", ["username"]).exec();
+            table: req.query.tableId,
+            winner: {$exists: false}
+        }, {cards: 0}).populate("table")
+            .populate({
+                path: "players.player",
+                select: ["username"]
+            }).exec();
+
+        rooms = rooms.filter(f => {
+            return !f.players.some(player => player.state === 'exit');
+        })
+
         res.json(rooms);
     } catch (err) {
         log.error(err);
@@ -82,11 +92,13 @@ router.get("/calculated", validate, async (req, res) => {
             room.cards = room.cards.slice(size, size + 5);
         } else room.cards = room.cards.slice(size, size + 5);
 
-        room.players.forEach(el => {
-            if (el.player.username !== req.user.name) {
-                el.cards = ["0", "0"];
-            }
-        });
+        if (!room.winner) {
+            room.players.forEach(el => {
+                if (el.player.username !== req.user.name) {
+                    el.cards = ["0", "0"];
+                }
+            });
+        }
 
         res.json(room);
     } catch (err) {
@@ -96,52 +108,55 @@ router.get("/calculated", validate, async (req, res) => {
     }
 });
 
-router.get("/start", validate, async (req, res) => {
-    const room = await Room.findOne({_id: req.query.id}).populate("table").populate("players.player").exec();
-    if (room.players && room.players.length > 0 && room.players[0].player.username !== req.user.name) {
-        return res.status(400).send("Зөвхөн өрөөг үүсгэсэн тоглогч эхлүүлэх боломжтой");
+router.get("/move", validate, async (req, res) => {
+    const room = await Room.findOne({_id: req.query.roomId}, {}).populate("table").populate("players.player").exec();
+
+    const makeCode = (length) => {
+        let result = '';
+        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        const charactersLength = characters.length;
+        for (let i = 0; i < length; i++) {
+            result += characters.charAt(Math.floor(Math.random() *
+                charactersLength));
+        }
+        return result.toUpperCase();
     }
-    if (room.started) {
-        return res.status(400).send("Тоглолт эхэлсэн байна.")
-    }
 
-    const cards = [
-        '2c', '2d', '2h', '2s',
-        '3c', '3d', '3h', '3s',
-        '4c', '4d', '4h', '4s',
-        '5c', '5d', '5h', '5s',
-        '6c', '6d', '6h', '6s',
-        '7c', '7d', '7h', '7s',
-        '8c', '8d', '8h', '8s',
-        '9c', '9d', '9h', '9s',
-        '10c', '10d', '10h', '10s',
-        'Jc', 'Jd', 'Jh', 'Js',
-        'Qc', 'Qd', 'Qh', 'Qs',
-        'Kc', 'Kd', 'Kh', 'Ks',
-        'Ac', 'Ad', 'Ah', 'As'
-    ];//52
+    const bigPlayer = room.players.find(f => f.big);
+    const smallPlayer = room.players.find(f => f.small);
 
-    cards.sort(() => 0.5 - Math.random());
+    let nextBigPlayer = room.players[room.players.indexOf(bigPlayer) + 1];
+    let nextSmallPlayer = room.players[room.players.indexOf(smallPlayer) + 1];
 
-    room.cards = cards;
-    room.started = true;
+    if (!nextBigPlayer) nextBigPlayer = room.players[0];
+    if (!nextSmallPlayer) nextSmallPlayer = room.players[0];
 
-    let i = 0;
+    const players = [];
 
-    room.players.forEach(el => {
-        if (!el.cards) el.cards = [];
-        el.cards.push(cards[i]);
-        i++;
+    room.players.filter(f => f.state !== 'exit').forEach(el => {
+        el.cards = [];
+        el.bet = 0;
+        el.status = 'active';
+        el.big = false;
+        el.small = false;
+        el.state = 'playing';
+        players.push(el);
     });
 
-    room.players.forEach(el => {
-        el.cards.push(cards[i]);
-        i++;
+    room.players[room.players.indexOf(nextBigPlayer)].big = true;
+    room.players[room.players.indexOf(nextSmallPlayer)].small = true;
+
+    const model = new Room({
+        code: makeCode(6),
+        players,
+        table: room.table._id,
+        current: room.players[0].player.username,
+        first: room.players[0].player.username,
     });
 
-    await room.save();
+    const newRoom = await model.save();
 
-    res.send("success");
+    res.send(newRoom._id);
 });
 
 module.exports = router;

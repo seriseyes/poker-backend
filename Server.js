@@ -70,7 +70,7 @@ io.on("connection", socket => {
     socket.on("join_room", data => socket.join(data.room));
 
     socket.on("check_room", async data => {
-        let room = await Room.findOne({_id: data.room}, {}).populate("table").populate("players.player").populate("players.cards").exec();
+        let room = await Room.findOne({_id: data.room}).populate("table").populate("players.player").exec();
         const user = await User.findOne({username: data.user});
 
         if (!room) {
@@ -83,8 +83,11 @@ io.on("connection", socket => {
             return;
         }
 
-        if (!room.started && !room.players.some(el => el.player.username === user.username))
-            room.players.push({player: user, cards: []});
+        if (room.winner) return;
+
+        if (!room.players.some(el => el.player.username === user.username)) {
+            room.players.push({player: user, cards: [], state: room.started ? "spectating" : "playing"});
+        }
 
         if (!room.started && data.started && room.players[0].player.username === user.username) {
             const cards = [
@@ -96,7 +99,7 @@ io.on("connection", socket => {
                 '7c', '7d', '7h', '7s',
                 '8c', '8d', '8h', '8s',
                 '9c', '9d', '9h', '9s',
-                '10c', '10d', '10h', '10s',
+                'Tc', 'Td', 'Th', 'Ts',
                 'Jc', 'Jd', 'Jh', 'Js',
                 'Qc', 'Qd', 'Qh', 'Qs',
                 'Kc', 'Kd', 'Kh', 'Ks',
@@ -120,26 +123,28 @@ io.on("connection", socket => {
                 i++;
             });
 
-            const bigIndex = room.players.indexOf(room.players[Math.floor(Math.random() * room.players.length)]);
+            if (!room.first) {
+                const bigIndex = room.players.indexOf(room.players[Math.floor(Math.random() * room.players.length)]);
 
-            let playerSmall = room.players[bigIndex + 1];
-            if (!playerSmall) playerSmall = room.players[0];
-            let playerCurrent = room.players[bigIndex + 2];
-            if (!playerCurrent) playerCurrent = room.players[0];
+                let playerSmall = room.players[bigIndex + 1];
+                if (!playerSmall) playerSmall = room.players[0];
+                let playerCurrent = room.players[bigIndex + 2];
+                if (!playerCurrent) playerCurrent = room.players[0];
+                room.players[bigIndex].big = true;
 
-            room.players[bigIndex].big = true;
-            room.current = playerCurrent.player.username;
-            room.first = room.current;
-            room.players[room.players.indexOf(playerSmall)].small = true;
+                room.current = playerCurrent.player.username;
+                room.first = room.current;
+                room.players[room.players.indexOf(playerSmall)].small = true;
+            }
             room.call = room.table.small;
             room.pot = room.call;
         }
 
         if (data.action) {
             const findNextIndex = (c) => {
-                let index = room.players.indexOf(c) + 1;
+                let index = room.players.filter(f => f.state === 'playing').indexOf(c) + 1;
 
-                for (let i = index; i < room.players.length; i++) {
+                for (let i = index; i < room.players.filter(f => f.state === 'playing').length; i++) {
                     if (room.players[i].status === 'active') {
                         return i;
                     }
@@ -188,15 +193,17 @@ io.on("connection", socket => {
                     room.first = room.current;
                 }
             }
-            if (room.round === 4) {
+            if (room.round === 5) {
                 const size = room.players.length * 2;
                 const cards = room.cards.slice(size, size + 5);
                 const winner = Hand.winners(room.players.map(el => {
-                    const hand = Hand.solve([...cards, el.cards]);
-                    hand.name = el.player.username;
+                    const hand = Hand.solve([...cards, ...el.cards]);
+                    hand.username = el.player.username;
                     return hand;
                 }));
-                console.log(winner[0].name);
+                room.winner = winner[0].username;
+                user.chips = room.pot;
+                await User.updateOne({username: room.winner}, {$inc: {chips: room.pot}});
             }
         }
 
@@ -205,17 +212,18 @@ io.on("connection", socket => {
     });
     socket.on("leave", async data => {
         const room = await Room.findOne({_id: data.room}, {}).populate("table").populate("players.player").exec();
-        room.players = room.players.filter(f => {
-            return f.player.username !== data.user;
-        });
+        room.players.find(f => f.player.username === data.user).state = 'exit';
         await room.save();
-        io.to(data.room).emit("check_room", {message: "success"});
+        io.to(data.room).emit("check_room", {message: "success", show: "no"});
     });
     socket.on("send", data => {
         io.to(data.room).emit("send", {
             sender: data.user,
             message: data.message,
         });
+    });
+    socket.on("move", async data => {
+        io.to(data.room).emit("move", {message: "success", room: data.newRoom});
     });
 });
 

@@ -12,8 +12,9 @@ const schema = new mongoose.Schema({
                 status: {type: String, default: () => "active"},//fold == inactive
                 big: {type: Boolean, default: () => false},
                 small: {type: Boolean, default: () => false},
-            }
-        }],
+                state: {type: String, default: () => "playing"},//playing, exit, spectating
+            },
+        }, {default: () => []},],
     table: {type: mongoose.Schema.Types.ObjectId, ref: "Table", required: true},
     started: {type: Boolean, default: () => false},
     status: {type: String, required: true, default: () => "active"},//active, inactive
@@ -23,6 +24,7 @@ const schema = new mongoose.Schema({
     current: {type: String, default: () => 0},//Яг одоо үйлдэл хийх хүн
     first: {type: String},
     round: {type: Number, default: () => 0},//Хэддэх тойрог вэ
+    winner: {type: String},
     created: {type: Date, default: () => moment().tz("Asia/Ulaanbaatar"), immutable: true, required: true}
 });
 
