@@ -100,6 +100,8 @@ router.get("/calculated", validate, async (req, res) => {
             });
         }
 
+        room.players = room.players.filter(f => f.state === 'playing');
+
         res.json(room);
     } catch (err) {
         log.error(err);
