@@ -2,7 +2,6 @@ const mongoose = require("mongoose");
 const moment = require('moment-timezone');
 
 const schema = new mongoose.Schema({
-    code: {type: String, required: true},
     players: [
         {
             type: {
