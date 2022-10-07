@@ -211,7 +211,7 @@ io.on("connection", socket => {
         io.to(data.room).emit("check_room", {message: "success"});
     });
     socket.on("leave", async data => {
-        const room = await Room.findOne({_id: data.room}, {}).populate("table").populate("players.player").exec();
+        const room = await Room.findOne({_id: data.room}).populate("table").populate("players.player").exec();
         room.players.find(f => f.player.username === data.user).state = 'exit';
         await room.save();
         io.to(data.room).emit("check_room", {message: "success", show: "no"});
