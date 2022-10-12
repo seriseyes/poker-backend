@@ -182,6 +182,9 @@ io.on("connection", socket => {
                     user.chips -= raise;
                     await user.save();
                     break;
+                case "check":
+                    room.current = room.players[findNextIndex(current)].player.username;
+                    break;
             }
 
             if (room.first === room.current) {
@@ -223,7 +226,7 @@ io.on("connection", socket => {
         });
     });
     socket.on("move", async data => {
-        io.to(data.room).emit("move", {message: "success", room: data.newRoom});
+        io.to(data.oldRoom).emit("move", {room: data.room});
     });
 });
 
