@@ -140,7 +140,7 @@ io.on("connection", socket => {
             room.pot = room.call;
         }
 
-        if (data.action) {
+        if (data.action && room.started) {
             const findNextIndex = (c) => {
                 let index = room.players.filter(f => f.state === 'playing').indexOf(c) + 1;
 
