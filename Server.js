@@ -142,9 +142,9 @@ io.on("connection", socket => {
 
         if (data.action && room.started) {
             const findNextIndex = (c) => {
-                let index = room.players.filter(f => f.state === 'playing').indexOf(c) + 1;
+                let index = room.players.filter(f => f.state === 'playing' && f.status === 'active').indexOf(c) + 1;
 
-                for (let i = index; i < room.players.filter(f => f.state === 'playing').length; i++) {
+                for (let i = index; i < room.players.filter(f => f.state === 'playing' && f.status === 'active').length; i++) {
                     if (room.players[i].status === 'active') {
                         return i;
                     }
