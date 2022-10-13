@@ -6,26 +6,22 @@ const schema = new mongoose.Schema({
         {
             type: {
                 player: {type: mongoose.Schema.Types.ObjectId, ref: "User"},
-                cards: {type: [String]},
-                bet: {type: Number, default: () => 0},
-                status: {type: String, default: () => "active"},//fold == inactive
+                cards: {type: [String], default: () => []},
                 big: {type: Boolean, default: () => false},
                 small: {type: Boolean, default: () => false},
-                state: {type: String, default: () => "playing"},//playing, exit, spectating
+                status: {type: String},//playing, exit, fold
             },
         }, {default: () => []},],
     table: {type: mongoose.Schema.Types.ObjectId, ref: "Table", required: true},
-    started: {type: Boolean, default: () => false},
-    status: {type: String, required: true, default: () => "active"},//active, inactive
     call: {type: Number, default: () => 0},
     pot: {type: Number, default: () => 0},
     cards: {type: [String]},
-    current: {type: String, default: () => 0},//Яг одоо үйлдэл хийх хүн
-    first: {type: String},
+    current: {type: String},//Яг одоо үйлдэл хийх хүн
     round: {type: Number, default: () => 0},//Хэддэх тойрог вэ
+    first: {type: String},//Эхний тоглогч
     winner: {type: String},
+    started: {type: Boolean, default: () => false},
     created: {type: Date, default: () => moment().tz("Asia/Ulaanbaatar"), immutable: true, required: true}
 });
 
 module.exports = mongoose.model("Room", schema);
-
