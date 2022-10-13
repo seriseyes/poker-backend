@@ -219,7 +219,12 @@ io.on("connection", socket => {
             started: false
         });
     });
-
+    socket.on("send", data => {
+        io.to(data.room).emit("send", {
+            message: data.message,
+            sender: data.user
+        })
+    });
 });
 
 async function getUser(token) {
