@@ -102,8 +102,12 @@ router.get("/cards", validate, async (req, res) => {
     }
 
     room.cards = [];
-    res.json(room.players.filter(el => el.player.username === req.user.name)[0].cards);
+    res.json(room.players.filter(el => el.player.username === req.user.name).filter(onlyUnique)[0].cards);
 });
+
+function onlyUnique(value, index, self) {
+    return self.indexOf(value) === index;
+}
 
 async function getUser(token) {
     const {name} = await jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);

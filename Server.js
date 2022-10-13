@@ -85,15 +85,25 @@ io.on("connection", socket => {
 
         await room.save();
 
-        io.to(data.room).emit("update", {
-            started: !room.started && room.players.length > 1
-        });
+        if (data.round === '2') {
+            io.to(data.room).emit("update", {
+                started: true
+            });
+        } else {
+            io.to(data.room).emit("update", {
+                started: !room.started && room.players.length > 1
+            });
+        }
     });
     socket.on("start", async (data) => {
         const room = await Room.findOne({_id: data.room}).populate("table").populate("players.player").exec();
 
         room.started = true;
         room.round = 1;
+
+        room.players.forEach(el => {
+            if (el.cards.length > 0) el.cards = [];
+        });
 
         let i = 0;
         room.players.forEach(el => {
@@ -198,7 +208,6 @@ io.on("connection", socket => {
         });
     });
     socket.on("move", async data => {
-        log.info("Moving");
         io.to(data.room).emit("move", {room: data.newRoom});
     });
     socket.on("leave", async (data) => {
