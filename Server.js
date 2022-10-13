@@ -97,51 +97,53 @@ io.on("connection", socket => {
     });
     socket.on("start", async (data) => {
         const room = await Room.findOne({_id: data.room}).populate("table").populate("players.player").exec();
+        if (!room.started) {
 
-        room.started = true;
-        room.round = 1;
+            room.started = true;
+            room.round = 1;
 
-        room.players.forEach(el => {
-            if (el.cards.length > 0) el.cards = [];
-        });
+            room.players.forEach(el => {
+                if (el.cards.length > 0) el.cards = [];
+            });
 
-        let i = 0;
-        room.players.forEach(el => {
-            el.cards.push(room.cards[i]);
-            i++;
-        });
-        room.players.forEach(el => {
-            el.cards.push(room.cards[i]);
-            i++;
-        });
+            let i = 0;
+            room.players.forEach(el => {
+                el.cards.push(room.cards[i]);
+                i++;
+            });
+            room.players.forEach(el => {
+                el.cards.push(room.cards[i]);
+                i++;
+            });
 
-        if (data.round === "1") {
-            room.players[0].big = true;
-            room.first = room.players[0].player._id;
-            room.players[1].small = true;
-        } else {
-            const item = room.players[Math.floor(Math.random() * room.players.length)];
-            const bigIndex = room.players.indexOf(item);
-            if (!bigIndex) {
+            if (data.round === "1") {
                 room.players[0].big = true;
                 room.first = room.players[0].player._id;
                 room.players[1].small = true;
             } else {
-                room.players[bigIndex].big = true;
-                room.first = room.players[bigIndex].player._id;
-                try {
-                    room.players[bigIndex + 1].small = true;
-                } catch (e) {
+                const item = room.players[Math.floor(Math.random() * room.players.length)];
+                const bigIndex = room.players.indexOf(item);
+                if (!bigIndex) {
                     room.players[0].big = true;
                     room.first = room.players[0].player._id;
                     room.players[1].small = true;
+                } else {
+                    room.players[bigIndex].big = true;
+                    room.first = room.players[bigIndex].player._id;
+                    try {
+                        room.players[bigIndex + 1].small = true;
+                    } catch (e) {
+                        room.players[0].big = true;
+                        room.first = room.players[0].player._id;
+                        room.players[1].small = true;
+                    }
                 }
             }
+
+            room.pot = room.call;
+
+            await room.save();
         }
-
-        room.pot = room.call;
-
-        await room.save();
 
         io.to(data.room).emit("update", {
             started: false
@@ -189,7 +191,7 @@ io.on("connection", socket => {
         if (room.round === 5) {
             const cards = room.cards.slice(size, size + 5);
             const winner = Hand.winners(room.players.map(el => {
-                const hand = Hand.solve([...cards, ...el.cards]);
+                const hand = Hand.solve([...cards, ...el.cards.filter(onlyUnique)]);
                 hand.username = el.player.username;
                 return hand;
             }));
@@ -235,6 +237,10 @@ io.on("connection", socket => {
         })
     });
 });
+
+function onlyUnique(value, index, self) {
+    return self.indexOf(value) === index;
+}
 
 async function getUser(token) {
     const {name} = await jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);

@@ -92,7 +92,7 @@ router.get("/cards", validate, async (req, res) => {
         return res.send("Aldaa");
     }
     if (room.winner) {
-        return res.json(room.players.filter(el => el.player.username === req.user.name)[0].cards);
+        return res.json(room.players.filter(el => el.player.username === req.user.name)[0].cards.filter(onlyUnique));
     } else if (room.started) {
         if (req.query.playerId !== user._id.toString()) {
             return res.json(["0", "0"]);
@@ -102,7 +102,7 @@ router.get("/cards", validate, async (req, res) => {
     }
 
     room.cards = [];
-    res.json(room.players.filter(el => el.player.username === req.user.name).filter(onlyUnique)[0].cards);
+    res.json(room.players.filter(el => el.player.username === req.user.name)[0].cards.filter(onlyUnique));
 });
 
 function onlyUnique(value, index, self) {
