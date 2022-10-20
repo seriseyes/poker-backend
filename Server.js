@@ -61,7 +61,7 @@ app.use("/room", roomRoute);
 app.use("/chip", chipRoute);
 
 app.get("/*", (req, res) => {
-    res.sendFile(path.resolve(__dirname, 'build', 'index.html'))
+    res.sendFile(path.resolve(__dirname, 'build', 'index.html'));
 });
 
 io.on("connection", socket => {
