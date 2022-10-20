@@ -18,6 +18,7 @@ const chipRoute = require("./routes/ChipRoute");
 const {urlencoded} = require("express");
 const Room = require("./models/Room");
 const User = require("./models/User");
+const jwt = require("jsonwebtoken");
 const Hand = require('pokersolver').Hand;
 
 require("dotenv").config();
@@ -67,174 +68,190 @@ app.get("/*", (req, res) => {
 io.on("connection", socket => {
     log.info("connected");
     socket.on("disconnect", () => log.info("disconnected"));
-    socket.on("join_room", data => socket.join(data.room));
+    socket.on("join", async data => {
+        await socket.join(data.room);
 
-    socket.on("check_room", async data => {
-        let room = await Room.findOne({_id: data.room}).populate("table").populate("players.player").exec();
-        const user = await User.findOne({username: data.user});
+        const user = await getUser(data.token);
+        const room = await Room.findOne({_id: data.room});
 
-        if (!room) {
-            io.to(room.room).emit("check_room", {message: "Өрөө олсонгүй"});
-            return;
+        const player = {
+            player: user,
+            status: room.started ? 'fold' : 'playing',
+        };
+
+        if (room.players.length === 0 || !room.players.some(p => p.player._id.toString() === player.player._id.toString())) {
+            room.players.push(player);
         }
 
-        if (!user) {
-            io.to(room.room).emit("check_room", {message: "Хэрэглэгч олсонгүй"});
-            return;
+        await room.save();
+
+        if (data.round === '2') {
+            io.to(data.room).emit("update", {
+                started: true
+            });
+        } else {
+            io.to(data.room).emit("update", {
+                started: !room.started && room.players.length > 1
+            });
         }
+    });
+    socket.on("start", async (data) => {
+        const room = await Room.findOne({_id: data.room}).populate("table").populate("players.player").exec();
+        if (!room.started) {
 
-        if (room.winner) return;
-
-        if (!room.players.some(el => el.player.username === user.username)) {
-            room.players.push({player: user, cards: [], state: room.started ? "spectating" : "playing"});
-        }
-
-        if (!room.started && data.started && room.players[0].player.username === user.username) {
-            const cards = [
-                '2c', '2d', '2h', '2s',
-                '3c', '3d', '3h', '3s',
-                '4c', '4d', '4h', '4s',
-                '5c', '5d', '5h', '5s',
-                '6c', '6d', '6h', '6s',
-                '7c', '7d', '7h', '7s',
-                '8c', '8d', '8h', '8s',
-                '9c', '9d', '9h', '9s',
-                'Tc', 'Td', 'Th', 'Ts',
-                'Jc', 'Jd', 'Jh', 'Js',
-                'Qc', 'Qd', 'Qh', 'Qs',
-                'Kc', 'Kd', 'Kh', 'Ks',
-                'Ac', 'Ad', 'Ah', 'As'
-            ];//52
-            cards.sort(() => 0.5 - Math.random());
-            room.cards = cards;
             room.started = true;
             room.round = 1;
 
+            room.players.forEach(el => {
+                if (el.cards.length > 0) el.cards = [];
+            });
+
             let i = 0;
-
             room.players.forEach(el => {
-                if (!el.cards) el.cards = [];
-                el.cards.push(cards[i]);
+                el.cards.push(room.cards[i]);
+                i++;
+            });
+            room.players.forEach(el => {
+                el.cards.push(room.cards[i]);
                 i++;
             });
 
-            room.players.forEach(el => {
-                el.cards.push(cards[i]);
-                i++;
-            });
-
-            if (!room.first) {
-                const bigIndex = room.players.indexOf(room.players[Math.floor(Math.random() * room.players.length)]);
-
-                let playerSmall = room.players[bigIndex + 1];
-                if (!playerSmall) playerSmall = room.players[0];
-                let playerCurrent = room.players[bigIndex + 2];
-                if (!playerCurrent) playerCurrent = room.players[0];
-                room.players[bigIndex].big = true;
-
-                room.current = playerCurrent.player.username;
-                room.first = room.current;
-                room.players[room.players.indexOf(playerSmall)].small = true;
+            if (data.round === "1") {
+                room.players[0].big = true;
+                room.first = room.players[0].player._id;
+                room.players[1].small = true;
+            } else {
+                const item = room.players[Math.floor(Math.random() * room.players.length)];
+                const bigIndex = room.players.indexOf(item);
+                if (!bigIndex) {
+                    room.players[0].big = true;
+                    room.first = room.players[0].player._id;
+                    room.players[1].small = true;
+                } else {
+                    room.players[bigIndex].big = true;
+                    room.first = room.players[bigIndex].player._id;
+                    try {
+                        room.players[bigIndex + 1].small = true;
+                    } catch (e) {
+                        room.players[0].big = true;
+                        room.first = room.players[0].player._id;
+                        room.players[1].small = true;
+                    }
+                }
             }
-            room.call = room.table.small;
+
             room.pot = room.call;
+
+            await room.save();
         }
 
-        if (data.action) {
-            const findNextIndex = (c) => {
-                let index = room.players.filter(f => f.state === 'playing').indexOf(c) + 1;
+        io.to(data.room).emit("update", {
+            started: false
+        });
+    });
+    socket.on("action", async data => {
+        const user = await getUser(data.token);
+        const room = await Room.findOne({_id: data.room}).populate("players.player").exec();
 
-                for (let i = index; i < room.players.filter(f => f.state === 'playing').length; i++) {
-                    if (room.players[i].status === 'active') {
-                        return i;
-                    }
-                }
+        const currentPlayer = room.players.find(player => player.player._id.toString() === user._id.toString());
+        const activePlayers = room.players.filter(f => f.status === 'playing');
 
-                for (let i = 0; i < index; i++) {
-                    if (room.players[i].status === 'active') {
-                        return i;
-                    }
-                }
-            }
-
-            const current = room.players.find(f => f.player.username === user.username);
-
-            switch (data.action) {
-                case "fold":
-                    room.current = room.players[findNextIndex(current)].player.username;
-                    room.players.find(f => f.player.username === user.username).status = 'inactive';
-                    break;
-                case "call":
-                    if (user.chips < room.call) return {message: "fail"};
-                    room.pot += room.call;
-                    room.players.find(f => f.player.username === user.username).bet += room.call;
-                    room.current = room.players[findNextIndex(current)].player.username;
-                    user.chips -= room.call;
-                    await user.save();
-                    break;
-                case "raise":
-                    const raise = parseInt(data.raise);
-                    if (user.chips < raise) return {message: "fail"};
-                    room.call = raise;
-                    room.players.find(f => f.player.username === user.username).bet += raise;
-                    room.current = room.players[findNextIndex(current)].player.username;
-                    room.pot += raise;
-                    user.chips -= raise;
-                    await user.save();
-                    break;
-                case "check":
-                    room.current = room.players[findNextIndex(current)].player.username;
-                    break;
-            }
-
-            if (room.first === room.current) {
-                room.round++;
-            }
-
-            if (data.action === 'fold') {
-                if (room.first === user.username) {
-                    room.first = room.current;
-                }
-            }
-            if (room.round === 5) {
-                const size = room.players.length * 2;
-                const cards = room.cards.slice(size, size + 5);
-                const winner = Hand.winners(room.players.map(el => {
-                    const hand = Hand.solve([...cards, ...el.cards]);
-                    hand.username = el.player.username;
-                    return hand;
-                }));
-                room.winner = winner[0].username;
-                user.chips = room.pot;
-                await User.updateOne({username: room.winner}, {$inc: {chips: room.pot}});
-            }
+        switch (data.action) {
+            case "call":
+                if (user.chips < room.call) return {message: "fail"};
+                room.pot += room.call;
+                user.chips -= room.call;
+                await user.save();
+                break;
+            case "raise":
+                const raise = parseInt(data.raise);
+                if (user.chips < raise) return {message: "fail"};
+                room.call = raise;
+                room.pot += raise;
+                user.chips -= raise;
+                await user.save();
+                break;
+            case "fold":
+                room.players.find(player => player.player._id.toString() === user._id.toString()).status = "fold";
+                break;
         }
 
-        await room.save();
-        io.to(data.room).emit("check_room", {message: "success"});
-    });
-    socket.on("leave", async data => {
-        const room = await Room.findOne({_id: data.room}).populate("table").populate("players.player").exec();
-        room.players.find(f => f.player.username === data.user).state = 'exit';
-        await room.save();
-        io.to(data.room).emit("check_room", {message: "success", show: "no"});
-    });
-    socket.on("send", data => {
-        io.to(data.room).emit("send", {
-            sender: data.user,
-            message: data.message,
+        try {
+            room.current = activePlayers[(activePlayers.indexOf(currentPlayer) + 1) % activePlayers.length].player._id;
+        } catch (e) {
+            return;
+        }
+
+        if (room.first === room.current) {
+            room.round++;
+        }
+
+        const size = room.players.length * 2;
+
+        if (room.round === 5) {
+            const cards = room.cards.slice(size, size + 5);
+            const winner = Hand.winners(room.players.map(el => {
+                const hand = Hand.solve([...cards, ...el.cards.filter(onlyUnique)]);
+                hand.username = el.player.username;
+                return hand;
+            }));
+            room.winner = winner[0].username;
+            user.chips = room.pot;
+            await User.updateOne({username: room.winner}, {$inc: {chips: room.pot}});
+            await room.save();
+
+            io.to(data.room).emit("won", {
+                winner: winner[0].username,
+            });
+        } else await room.save();
+
+        io.to(data.room).emit("update", {
+            started: false
         });
     });
     socket.on("move", async data => {
-        io.to(data.oldRoom).emit("move", {room: data.room});
+        io.to(data.room).emit("move", {room: data.newRoom});
+    });
+    socket.on("leave", async (data) => {
+        const user = await getUser(data.token);
+        const room = await Room.findOne({_id: data.room}).populate("players.player").exec();
+        room.players.forEach(el => {
+            if (el.player._id.toString() === user._id.toString()) {
+                el.status = 'exit';
+            }
+        });
+        if (room.players.every(el => el.status === 'exit')) {
+            if (!room.winner) {
+                room.winner = "No one";
+            }
+        }
+        await room.save();
+        io.to(data.room).emit("update", {
+            started: false
+        });
+    });
+    socket.on("send", data => {
+        io.to(data.room).emit("send", {
+            message: data.message,
+            sender: data.user
+        })
     });
 });
+
+function onlyUnique(value, index, self) {
+    return self.indexOf(value) === index;
+}
+
+async function getUser(token) {
+    const {name} = await jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+    return User.findOne({username: name});
+}
 
 //Эхлэл
 server.listen(PORT, () => {
     log.info(`
-░█▀▀▀█ ░█▀▀▀ ░█▀▀█ ░█──░█ ░█▀▀▀ ░█▀▀█ 　 ░█▀▀▀█ ▀▀█▀▀ ─█▀▀█ ░█▀▀█ ▀▀█▀▀ ░█▀▀▀ ░█▀▀▄ 
-─▀▀▀▄▄ ░█▀▀▀ ░█▄▄▀ ─░█░█─ ░█▀▀▀ ░█▄▄▀ 　 ─▀▀▀▄▄ ─░█── ░█▄▄█ ░█▄▄▀ ─░█── ░█▀▀▀ ░█─░█ 
+░█▀▀▀█ ░█▀▀▀ ░█▀▀█ ░█──░█ ░█▀▀▀ ░█▀▀█ 　 ░█▀▀▀█ ▀▀█▀▀ ─█▀▀█ ░█▀▀█ ▀▀█▀▀ ░█▀▀▀ ░█▀▀▄
+─▀▀▀▄▄ ░█▀▀▀ ░█▄▄▀ ─░█░█─ ░█▀▀▀ ░█▄▄▀ 　 ─▀▀▀▄▄ ─░█── ░█▄▄█ ░█▄▄▀ ─░█── ░█▀▀▀ ░█─░█
 ░█▄▄▄█ ░█▄▄▄ ░█─░█ ──▀▄▀─ ░█▄▄▄ ░█─░█ 　 ░█▄▄▄█ ─░█── ░█─░█ ░█─░█ ─░█── ░█▄▄▄ ░█▄▄▀`);
     log.info("PORT: " + PORT);
 });

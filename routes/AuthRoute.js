@@ -7,9 +7,7 @@ const bcrypt = require('bcrypt');
  * Авсан token-г client-н cookie-д хадгалах.
  */
 router.route("/login").post(async (req, res) => {
-    const user = {name: req.body.username}
-
-    const model = await User.findOne({username: user.name});
+    const model = await User.findOne({username: req.body.username});
 
     if (!model) return res.status(401).send("Нэвтрэх нэр эсвэл нууц үг буруу байна.");
 
@@ -19,7 +17,10 @@ router.route("/login").post(async (req, res) => {
 
     if (model.ban) return res.status(400).send("Таны бүртгэлийг хориглосон байна [Banned].");
 
-    const accessToken = generateAccessToken(user);
+    const accessToken = generateAccessToken({
+        name: model.username,
+        id: model._id
+    });
     res.cookie("token", accessToken);
     res.cookie("username", model.username);
     res.cookie("role", model.role);

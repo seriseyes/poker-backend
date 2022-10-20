@@ -4,20 +4,39 @@ const User = require("../models/User");
 const Table = require("../models/Table");
 const validate = require("../utils/Middleware");
 const log = require("../utils/Log");
+const jwt = require("jsonwebtoken");
 
 router.get("/create", validate, async (req, res) => {
-    const user = await User.findOne({username: req.user.name});
-
-    const table = await Table.findOne({_id: req.query.tableId});
+    const table = await Table.findOne({_id: req.query.tableId}).lean();
+    const user = await getUser(req.cookies.token);
 
     if (!table) {
         res.status(404).json({message: "Table not found"});
         return;
     }
 
+    const cardsShuffled = [
+        '2c', '2d', '2h', '2s',
+        '3c', '3d', '3h', '3s',
+        '4c', '4d', '4h', '4s',
+        '5c', '5d', '5h', '5s',
+        '6c', '6d', '6h', '6s',
+        '7c', '7d', '7h', '7s',
+        '8c', '8d', '8h', '8s',
+        '9c', '9d', '9h', '9s',
+        'Tc', 'Td', 'Th', 'Ts',
+        'Jc', 'Jd', 'Jh', 'Js',
+        'Qc', 'Qd', 'Qh', 'Qs',
+        'Kc', 'Kd', 'Kh', 'Ks',
+        'Ac', 'Ad', 'Ah', 'As'
+    ];//52
+    cardsShuffled.sort(() => 0.5 - Math.random());
+
     const model = new Room({
-        players: [{player: user, cards: []}],
-        table: table._id
+        table: table._id,
+        cards: cardsShuffled,
+        current: user._id,
+        call: table.small
     });
 
     try {
@@ -31,8 +50,6 @@ router.get("/create", validate, async (req, res) => {
 router.get("/all/tableId", validate, async (req, res) => {
     try {
         let rooms = await Room.find({
-            status: "active",
-            players: {$ne: []},
             table: req.query.tableId,
             winner: {$exists: false}
         }, {cards: 0}).populate("table")
@@ -40,10 +57,6 @@ router.get("/all/tableId", validate, async (req, res) => {
                 path: "players.player",
                 select: ["username"]
             }).exec();
-
-        rooms = rooms.filter(f => {
-            return !f.players.some(player => player.state === 'exit');
-        })
 
         res.json(rooms);
     } catch (err) {
@@ -53,100 +66,52 @@ router.get("/all/tableId", validate, async (req, res) => {
 });
 
 router.get("/id", validate, async (req, res) => {
-    try {
-        const room = await Room.findOne({_id: req.query.id}, {cards: 0}).populate("table").populate("players.player", ["username", "chips"]).exec();
-        room.players.forEach(el => el.cards = undefined);
-        res.json(room);
-    } catch (err) {
-        log.error(err);
-        res.status(400).send(err.message);
-    }
-});
+    const room = await Room.findOne({_id: req.query.id}).populate("table").populate("players.player").exec();
 
-router.get("/calculated", validate, async (req, res) => {
-    try {
-        const room = await Room.findOne({_id: req.query.id}).populate("table").populate("players.player", ['username', 'chips', 'cards']).populate("players.cards").exec();
-        if (!room.started) return res.json(room);
+    const size = room.players.length * 2;
 
-        const size = room.players.length * 2;
-
+    if (room.started) {
         if (room.round === 1) {
             room.cards = [];
         } else if (room.round === 2) {
             room.cards = room.cards.slice(size, size + 3);
         } else if (room.round === 3) {
             room.cards = room.cards.slice(size, size + 4);
-        } else if (room.round === 3) {
+        } else if (room.round === 4) {
             room.cards = room.cards.slice(size, size + 5);
         } else room.cards = room.cards.slice(size, size + 5);
+    } else room.cards = [];
 
-        if (!room.winner) {
-            room.players.forEach(el => {
-                if (el.player.username !== req.user.name) {
-                    el.cards = ["0", "0"];
-                }
-            });
-        }
-
-        room.players = room.players.filter(f => f.state === 'playing');
-
-        res.json(room);
-    } catch (err) {
-        log.error(err);
-        res.status(400).send(err.message);
-
-    }
+    res.json(room);
 });
 
-router.get("/move", validate, async (req, res) => {
-    const room = await Room.findOne({_id: req.query.roomId}, {}).populate("table").populate("players.player").exec();
-
-    const makeCode = (length) => {
-        let result = '';
-        const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        const charactersLength = characters.length;
-        for (let i = 0; i < length; i++) {
-            result += characters.charAt(Math.floor(Math.random() *
-                charactersLength));
+router.get("/cards", validate, async (req, res) => {
+    const user = await getUser(req.cookies.token);
+    const room = await Room.findOne({_id: req.query.id}, {cards: 0}).populate("players.player").exec();
+    if (!room) {
+        return res.send("Aldaa");
+    }
+    if (room.winner) {
+        return res.json(room.players.filter(el => el.player.username === req.user.name)[0].cards.filter(onlyUnique));
+    } else if (room.started) {
+        if (req.query.playerId !== user._id.toString()) {
+            return res.json(["0", "0"]);
         }
-        return result.toUpperCase();
+    } else {
+        return res.json([]);
     }
 
-    const bigPlayer = room.players.find(f => f.big);
-    const smallPlayer = room.players.find(f => f.small);
-
-    let nextBigPlayer = room.players[room.players.indexOf(bigPlayer) + 1];
-    let nextSmallPlayer = room.players[room.players.indexOf(smallPlayer) + 1];
-
-    if (!nextBigPlayer) nextBigPlayer = room.players[0];
-    if (!nextSmallPlayer) nextSmallPlayer = room.players[0];
-
-    const players = [];
-
-    room.players.filter(f => f.state !== 'exit').forEach(el => {
-        el.cards = [];
-        el.bet = 0;
-        el.status = 'active';
-        el.big = false;
-        el.small = false;
-        el.state = 'playing';
-        players.push(el);
-    });
-
-    room.players[room.players.indexOf(nextBigPlayer)].big = true;
-    room.players[room.players.indexOf(nextSmallPlayer)].small = true;
-
-    const model = new Room({
-        code: makeCode(6),
-        players,
-        table: room.table._id,
-        current: room.players[0].player.username,
-        first: room.players[0].player.username,
-    });
-
-    const newRoom = await model.save();
-
-    res.send(newRoom._id);
+    room.cards = [];
+    res.json(room.players.filter(el => el.player.username === req.user.name)[0].cards.filter(onlyUnique));
 });
+
+function onlyUnique(value, index, self) {
+    return self.indexOf(value) === index;
+}
+
+async function getUser(token) {
+    const {name} = await jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+    return User.findOne({username: name}).lean();
+}
 
 module.exports = router;
